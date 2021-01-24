@@ -72,6 +72,7 @@ impl<PROTOCOL: Protocol> Connection<PROTOCOL> {
         let event_bytes = unescape_bytes(&escaped_bytes[..escaped_bytes.len() - 1]);
         PROTOCOL::decode(&event_bytes)
     }
+    #[cfg(test)] // Only used in tests, for now
     pub fn recv_blocking(&mut self) -> Option<Event> {
         loop {
             let option = self.recv();

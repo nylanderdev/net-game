@@ -1,11 +1,14 @@
 #[cfg(test)]
 mod test;
+#[macro_use]
+extern crate lazy_static;
 
 use crate::game::Client;
-use crate::net::{Connection, SmartProtocol, DumbProtocol};
+use crate::net::{Connection, SmartProtocol};
 use std::net::{TcpListener, TcpStream};
 
 mod game;
+mod misc;
 mod net;
 
 use crate::game::Server;
@@ -17,9 +20,9 @@ fn main() {
     }
     if args[0] == "-host" {
         std::thread::spawn(server_main);
-        client_main(&"localhost".to_string(), false)
+        client_main(&"localhost".to_string())
     } else {
-        client_main(&args[0], false)
+        client_main(&args[0])
     }
 }
 
@@ -33,9 +36,9 @@ fn server_main() {
     server.main();
 }
 
-fn client_main(address: &String, slow: bool) {
+fn client_main(address: &String) {
     let remote = TcpStream::connect(format!("{}:1337", address)).unwrap();
     let conn = Connection::<SmartProtocol>::from_socket(remote);
     let client = Client::new();
-    client.main(conn, slow);
+    client.main(conn);
 }

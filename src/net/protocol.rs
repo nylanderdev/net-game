@@ -1,4 +1,8 @@
+#![allow(deprecated, unused)]
+
+use crate::misc::constants::{ALL_KEYS, KEY_INDEX_MAP};
 use crate::net::{Event, Handle};
+use ggez::event::KeyCode;
 use std::mem::size_of;
 
 pub trait Protocol {
@@ -6,6 +10,7 @@ pub trait Protocol {
     fn decode(bytes: &[u8]) -> Option<Event>;
 }
 
+#[deprecated]
 pub struct DumbProtocol;
 
 impl Protocol for DumbProtocol {
@@ -29,10 +34,15 @@ impl Protocol for DumbProtocol {
             let contents = &string[first_paren.unwrap() + 1..last_paren.unwrap()];
             match enum_name {
                 "Movement" => {
-                    let coords: Vec<i32> =
+                    let coords: Vec<f32> =
                         contents.split(",").filter_map(|s| s.parse().ok()).collect();
-                    if coords.len() == 3 {
-                        Some(Event::Movement(coords[0] as u64, coords[1], coords[2]))
+                    if coords.len() == 4 {
+                        Some(Event::Movement(
+                            coords[0] as u64,
+                            coords[1],
+                            coords[2],
+                            coords[3],
+                        ))
                     } else {
                         None
                     }
@@ -40,9 +50,11 @@ impl Protocol for DumbProtocol {
                 "RequestMovement" => {
                     let mut split_contents = contents.split(",");
                     let handle = split_contents.next()?.parse::<Handle>().ok()?;
-                    let coords: Vec<i32> = split_contents.filter_map(|s| s.parse().ok()).collect();
-                    if coords.len() == 2 {
-                        Some(Event::RequestMovement(handle, coords[0], coords[1]))
+                    let coords: Vec<f32> = split_contents.filter_map(|s| s.parse().ok()).collect();
+                    if coords.len() == 3 {
+                        Some(Event::RequestMovement(
+                            handle, coords[0], coords[1], coords[2],
+                        ))
                     } else {
                         None
                     }
@@ -83,11 +95,15 @@ impl Protocol for SmartProtocol {
         match event {
             Event::Ready => Self::encode_ready(),
             Event::Start => Self::encode_start(),
-            Event::Movement(handle, x, y) => Self::encode_movement(*handle, *x, *y),
-            Event::RequestMovement(handle, x, y) => Self::encode_request_movement(*handle, *x, *y),
+            Event::Movement(handle, x, y, angle) => Self::encode_movement(*handle, *x, *y, *angle),
+            Event::RequestMovement(handle, x, y, angle) => {
+                Self::encode_request_movement(*handle, *x, *y, *angle)
+            }
             Event::Custom(kind, data) => Self::encode_custom(*kind, data),
             Event::Yield(handle) => Self::encode_yield(*handle),
             Event::Spawn(handle) => Self::encode_spawn(*handle),
+            Event::KeyDown(key_code) => Self::encode_key_down(*key_code),
+            Event::KeyUp(key_code) => Self::encode_key_up(*key_code),
         }
     }
 
@@ -111,6 +127,8 @@ impl SmartProtocol {
             b'c' => Self::decode_custom(data),
             b'Y' => Self::decode_yield(data),
             b'P' => Self::decode_spawn(data),
+            b'd' => Self::decode_key_down(data),
+            b'u' => Self::decode_key_up(data),
             _ => None,
         }
     }
@@ -141,47 +159,55 @@ impl SmartProtocol {
 
     fn decode_movement(data: &[u8]) -> Option<Event> {
         const HANDLE_SIZE: usize = size_of::<Handle>();
-        const COORD_SIZE: usize = size_of::<i32>();
-        const EXPECTED_LENGTH: usize = HANDLE_SIZE + 2 * COORD_SIZE;
+        const COORD_SIZE: usize = size_of::<f32>();
+        const EXPECTED_LENGTH: usize = HANDLE_SIZE + 3 * COORD_SIZE;
         if data.len() == EXPECTED_LENGTH {
             let handle = unsigned_from_bytes(&data[..HANDLE_SIZE]) as Handle;
-            let x = i32_from_bytes(&data[HANDLE_SIZE..HANDLE_SIZE + COORD_SIZE]) as i32;
-            let y = i32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE..EXPECTED_LENGTH]) as i32;
-            Some(Event::Movement(handle, x, y))
+            let x = f32_from_bytes(&data[HANDLE_SIZE..HANDLE_SIZE + COORD_SIZE]) as f32;
+            //let y = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE..EXPECTED_LENGTH]) as f32;
+            let y = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE..HANDLE_SIZE + COORD_SIZE * 2])
+                as f32;
+            let angle = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE * 2..EXPECTED_LENGTH]) as f32;
+            Some(Event::Movement(handle, x, y, angle))
         } else {
             None
         }
     }
 
-    fn encode_movement(handle: Handle, x: i32, y: i32) -> Vec<u8> {
+    fn encode_movement(handle: Handle, x: f32, y: f32, angle: f32) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(1 + 8 + 4 + 4);
         bytes.push(b'M');
         bytes.append(&mut u64_to_bytes(handle));
-        bytes.append(&mut i32_to_bytes(x));
-        bytes.append(&mut i32_to_bytes(y));
+        bytes.append(&mut f32_to_bytes(x));
+        bytes.append(&mut f32_to_bytes(y));
+        bytes.append(&mut f32_to_bytes(angle));
         bytes
     }
 
     fn decode_request_movement(data: &[u8]) -> Option<Event> {
         const HANDLE_SIZE: usize = size_of::<Handle>();
-        const COORD_SIZE: usize = size_of::<i32>();
-        const EXPECTED_LENGTH: usize = HANDLE_SIZE + 2 * COORD_SIZE;
+        const COORD_SIZE: usize = size_of::<f32>();
+        const EXPECTED_LENGTH: usize = HANDLE_SIZE + 3 * COORD_SIZE;
         if data.len() == EXPECTED_LENGTH {
             let handle = unsigned_from_bytes(&data[..HANDLE_SIZE]) as Handle;
-            let x = i32_from_bytes(&data[HANDLE_SIZE..HANDLE_SIZE + COORD_SIZE]) as i32;
-            let y = i32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE..EXPECTED_LENGTH]) as i32;
-            Some(Event::RequestMovement(handle, x, y))
+            let x = f32_from_bytes(&data[HANDLE_SIZE..HANDLE_SIZE + COORD_SIZE]) as f32;
+            //let y = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE..EXPECTED_LENGTH]) as f32;
+            let y = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE..HANDLE_SIZE + COORD_SIZE * 2])
+                as f32;
+            let angle = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE * 2..EXPECTED_LENGTH]) as f32;
+            Some(Event::RequestMovement(handle, x, y, angle))
         } else {
             None
         }
     }
 
-    fn encode_request_movement(handle: Handle, x: i32, y: i32) -> Vec<u8> {
+    fn encode_request_movement(handle: Handle, x: f32, y: f32, angle: f32) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(1 + 8 + 4 + 4);
         bytes.push(b'm');
         bytes.append(&mut u64_to_bytes(handle));
-        bytes.append(&mut i32_to_bytes(x));
-        bytes.append(&mut i32_to_bytes(y));
+        bytes.append(&mut f32_to_bytes(x));
+        bytes.append(&mut f32_to_bytes(y));
+        bytes.append(&mut f32_to_bytes(angle));
         bytes
     }
 
@@ -234,9 +260,55 @@ impl SmartProtocol {
         bytes.append(&mut u64_to_bytes(handle));
         bytes
     }
+
+    fn decode_key_down(data: &[u8]) -> Option<Event> {
+        if data.len() == size_of::<usize>() {
+            let key_index = unsigned_from_bytes(data) as usize;
+            let key_code = ALL_KEYS[key_index];
+            Some(Event::KeyDown(key_code))
+        } else {
+            None
+        }
+    }
+
+    fn encode_key_down(key_code: KeyCode) -> Vec<u8> {
+        let key_index = KEY_INDEX_MAP.get(&key_code).expect(&format!(
+            "Critical protocol failure. Missing code {:?} in KEY_INDEX_MAP",
+            key_code
+        ));
+        let mut bytes = Vec::with_capacity(1 + size_of::<usize>());
+        bytes.push(b'd');
+        bytes.append(&mut usize_to_bytes(*key_index));
+        bytes
+    }
+
+    fn decode_key_up(data: &[u8]) -> Option<Event> {
+        if data.len() == size_of::<usize>() {
+            let key_index = unsigned_from_bytes(data) as usize;
+            let key_code = ALL_KEYS[key_index];
+            Some(Event::KeyUp(key_code))
+        } else {
+            None
+        }
+    }
+
+    fn encode_key_up(key_code: KeyCode) -> Vec<u8> {
+        let key_index = KEY_INDEX_MAP.get(&key_code).expect(&format!(
+            "Critical protocol failure. Missing code {:?} in KEY_INDEX_MAP",
+            key_code
+        ));
+        let mut bytes = Vec::with_capacity(1 + size_of::<usize>());
+        bytes.push(b'u');
+        bytes.append(&mut usize_to_bytes(*key_index));
+        bytes
+    }
 }
 
 fn u32_to_bytes(number: u32) -> Vec<u8> {
+    number.to_be_bytes().to_vec()
+}
+
+fn usize_to_bytes(number: usize) -> Vec<u8> {
     number.to_be_bytes().to_vec()
 }
 
@@ -245,6 +317,10 @@ fn u64_to_bytes(number: u64) -> Vec<u8> {
 }
 
 fn i32_to_bytes(number: i32) -> Vec<u8> {
+    number.to_be_bytes().to_vec()
+}
+
+fn f32_to_bytes(number: f32) -> Vec<u8> {
     number.to_be_bytes().to_vec()
 }
 
@@ -263,4 +339,12 @@ fn i32_from_bytes(bytes: &[u8]) -> i32 {
         four_bytes[i] = bytes[i]
     }
     i32::from_be_bytes(four_bytes)
+}
+
+fn f32_from_bytes(bytes: &[u8]) -> f32 {
+    let mut four_bytes = [0; 4];
+    for i in 0..bytes.len().min(4) {
+        four_bytes[i] = bytes[i]
+    }
+    f32::from_be_bytes(four_bytes)
 }

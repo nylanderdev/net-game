@@ -1,90 +1,102 @@
-use crate::net::{Connection, Event, EventListener, Handle, Protocol};
-use std::collections::{HashMap, HashSet, VecDeque};
+use crate::misc::State;
+use crate::net::{Connection, Event, EventListener, Handle, Protocol, NULL_HANDLE};
+use ggez::event::KeyCode;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
-use std::thread::sleep;
+
+const CLIENT_COUNT: usize = 2;
 
 pub struct Server<PROTOCOL: Protocol> {
-    clients: [Connection<PROTOCOL>; 2],
-    owned_handles: HashMap<usize, Vec<Handle>>,
-    coords: HashMap<Handle, (i32, i32)>,
-    movement_map: HashMap<Handle, HashSet<Direction>>,
-}
-
-#[derive(Eq, PartialEq, Hash)]
-enum Direction {
-    Up,
-    Down,
-    Left,
-    Right,
+    clients: [Connection<PROTOCOL>; CLIENT_COUNT],
+    owned_handles: [Vec<Handle>; CLIENT_COUNT],
+    player_handles: [Handle; CLIENT_COUNT],
+    handles: HashSet<Handle>,
+    velocity: HashMap<Handle, (f32, f32)>,
+    position: HashMap<Handle, State<(f32, f32, f32)>>,
+    last_handle: Handle,
+    delta_time: f32,
 }
 
 impl<PROTOCOL: Protocol> Server<PROTOCOL> {
     pub fn main(&mut self) {
         self.await_clients();
+        self.spawn_players();
         let mut last_frame = Instant::now();
+        let mut last_broadcast = Instant::now();
+        const MIN_BROADCAST_DURATION: Duration = Duration::from_micros(100);
         loop {
-            const FRAME_DURATION: Duration = Duration::from_millis(10);
-            const HANDLED_EVENT_COUNT: usize = 4;
-            for _count in 0..HANDLED_EVENT_COUNT {
-                for i in 0..self.clients.len() {
-                    if let Some(event) = self.clients[i].recv() {
-                        if self.validate_event(&event, i) {
-                            println!("{:?}", event);
-                            self.handle(event);
-                        }
-                    }
+            for i in 0..self.clients.len() {
+                if let Some(event) = self.clients[i].recv() {
+                    self.handle(i, event);
                 }
             }
-            if last_frame.elapsed() >= FRAME_DURATION {
-                last_frame = Instant::now();
-                self.server_frame();
+            self.delta_time = last_frame.elapsed().as_secs_f32();
+            self.apply_physics();
+            last_frame = Instant::now();
+            if last_broadcast.elapsed() >= MIN_BROADCAST_DURATION {
+                self.send_position();
+                last_broadcast = Instant::now();
             }
         }
     }
 
-    fn handle_movement(&mut self) {
-        let mut events = VecDeque::new();
-        let mut handles = Vec::new();
-        for (handle, directions) in &self.movement_map {
-            handles.push(*handle);
-            let (mut move_x, mut move_y) = (0, 0);
-            for direction in directions {
-                match direction {
-                    Direction::Up => move_y -= 1,
-                    Direction::Down => move_y += 1,
-                    Direction::Left => move_x -= 1,
-                    Direction::Right => move_x += 1,
-                    _ => ()
+    fn spawn_players(&mut self) {
+        for i in 0..self.clients.len() {
+            self.spawn();
+            self.owned_handles[i].push(self.last_handle);
+            self.player_handles[i] = self.last_handle;
+            self.clients[i].send(&Event::Yield(self.last_handle));
+        }
+    }
+
+    fn spawn(&mut self) {
+        let handle = self.last_handle + 1;
+        self.handles.insert(handle);
+        self.position.insert(handle, State::new((0.0, 0.0, 0.0)));
+        self.broadcast_event(&Event::Spawn(handle));
+        self.last_handle = handle;
+    }
+
+    fn apply_physics(&mut self) {
+        for handle in &self.handles {
+            let vel = if let Some((x, y)) = self.velocity.get(handle) {
+                (*x, *y)
+            } else {
+                (0.0, 0.0)
+            };
+            if let Some(pos) = self.position.get_mut(handle) {
+                if vel != (0.0, 0.0) {
+                    //println!("{:?} : {}", **pos, self.delta_time.log10().round() as isize);
+                    pos.0 += vel.0 * self.delta_time;
+                    pos.1 += vel.1 * self.delta_time;
                 }
             }
-            if let Some((x, y)) = self.coords.get(handle) {
-                let new_coords = (x + move_x, y + move_y);
-                self.coords.insert(*handle, new_coords);
-                events.push_back(Event::Movement(*handle, new_coords.0, new_coords.1));
+        }
+    }
+
+    fn send_position(&mut self) {
+        let mut events = Vec::with_capacity(self.position.len());
+        for (handle, pos) in &mut self.position {
+            if pos.invalidated_since() {
+                events.push(Event::Movement(*handle, pos.0, pos.1, pos.2));
             }
         }
-        while !events.is_empty() {
-            if let Some(event) = events.pop_front() {
-                self.broadcast_event(&event);
-            }
-        }
-        for handle in handles {
-            self.movement_map.get_mut(&handle).unwrap().clear();
+        for event in events {
+            self.broadcast_event(&event);
         }
     }
 
     pub fn new(client1: Connection<PROTOCOL>, client2: Connection<PROTOCOL>) -> Self {
         let clients = [client1, client2];
-        let mut owned_handles = HashMap::new();
-        // Initialize owned_handles with empty vectors
-        for i in 0..clients.len() {
-            owned_handles.insert(i, Vec::new());
-        }
         Self {
             clients,
-            owned_handles,
-            coords: HashMap::new(),
-            movement_map: HashMap::new(),
+            owned_handles: [vec![], vec![]],
+            player_handles: [NULL_HANDLE, NULL_HANDLE],
+            handles: Default::default(),
+            velocity: HashMap::new(),
+            position: HashMap::new(),
+            last_handle: 0,
+            delta_time: 0.0,
         }
     }
 
@@ -99,113 +111,49 @@ impl<PROTOCOL: Protocol> Server<PROTOCOL> {
             }
         }
         self.broadcast_event(&Event::Start);
-        for i in 0..self.clients.len() {
-            let player_object_handle = (i + 1) as u64;
-            self.owned_handles
-                .get_mut(&i)
-                .unwrap()
-                .push(player_object_handle);
-            self.clients[i].send(&Event::Yield(player_object_handle));
-            self.broadcast_event(&Event::Spawn(player_object_handle));
-        }
-    }
-
-    fn recv_input(&mut self) {
-        for i in 0..self.clients.len() {
-            if let Some(event) = self.clients[i].recv() {
-                if self.validate_event(&event, i) {
-                    self.handle(event);
-                }
-            }
-        }
     }
 
     fn broadcast_event(&mut self, event: &Event) {
-        self.clients[0].send(event);
-        self.clients[1].send(event);
-    }
-
-    fn validate_event(&self, event: &Event, client_index: usize) -> bool {
-        match event {
-            Event::Start => false,
-            Event::Movement(..) => false,
-            Event::RequestMovement(handle, ..) => {
-                client_index < self.clients.len()
-                    && self.owned_handles[&client_index].contains(handle)
-            }
-            Event::Yield(..) => false,
-            Event::Spawn(..) => false,
-            _ => true,
-        }
-    }
-
-    fn server_frame(&mut self) {
-        let mut events_to_broadcast = Vec::new();
-        let coords_copy = self.coords.clone();
-        for (handle, (x, y)) in &coords_copy {
-            if self.movement_map.get(handle).is_some() {
-                const MOVEMENT: i32 = 5;
-                let (mut move_x, mut move_y) = (0, 0);
-                if self.movement_map[handle].contains(&Direction::Up) { move_y -= MOVEMENT; }
-                if self.movement_map[handle].contains(&Direction::Down) { move_y += MOVEMENT; }
-                if self.movement_map[handle].contains(&Direction::Left) { move_x -= MOVEMENT; }
-                if self.movement_map[handle].contains(&Direction::Right) { move_x += MOVEMENT; }
-                if (move_x, move_y) != (0, 0) {
-                    events_to_broadcast.push(Event::Movement(*handle, x + move_x, y + move_y));
-                }
-                self.movement_map.get_mut(handle).unwrap().clear();
-                self.coords.insert(*handle, (*x + move_x, *y + move_y));
-            } else {
-                self.movement_map.insert(*handle, HashSet::new());
-            }
-        }
-        for event in events_to_broadcast {
-            self.broadcast_event(&event);
+        for client in &mut self.clients {
+            client.send(event);
         }
     }
 }
 
 impl<PROTOCOL: Protocol> EventListener for Server<PROTOCOL> {
-    fn on_request_movement(&mut self, handle: Handle, mut x: i32, mut y: i32) {
-        // todo: Movement request should be validated. Consider changing the event struct
-        //eprintln!("move on {}: {}, {}", handle, x, y);
-        //if is_within_bounds(x, y) {
-        if !self.coords.contains_key(&handle) {
-            self.coords.insert(handle, (0, 0));
+    fn on_key_up(&mut self, conn_index: usize, key_code: KeyCode) {
+        let player_handle = self.player_handles[conn_index];
+        let vel = if let Some(vel) = self.velocity.get_mut(&player_handle) {
+            vel
+        } else {
+            self.velocity.insert(player_handle, (0.0, 0.0));
+            self.velocity.get_mut(&player_handle).unwrap()
+        };
+        const VELOCITY: f32 = -200.0;
+        match key_code {
+            KeyCode::Up => vel.1 -= VELOCITY,
+            KeyCode::Down => vel.1 += VELOCITY,
+            KeyCode::Left => vel.0 -= VELOCITY,
+            KeyCode::Right => vel.0 += VELOCITY,
+            _ => (),
         }
-        if self.movement_map.get(&handle).is_none() {
-            self.movement_map.insert(handle, HashSet::new());
-        }
-        if x > 0 {
-            x = 1;
-            self.movement_map.get_mut(&handle).unwrap().insert(Direction::Right);
-        } else if x < 0 {
-            x = -1;
-            self.movement_map.get_mut(&handle).unwrap().insert(Direction::Left);
-        }
-        if y > 0 {
-            y = 1;
-            self.movement_map.get_mut(&handle).unwrap().insert(Direction::Down);
-        } else if y < 0 {
-            y = -1;
-            // todo: do not unwrap
-            self.movement_map.get_mut(&handle).unwrap().insert(Direction::Up);
-        }
-        /*
-        if let Some(coords) = self.coords.get(&handle) {
-            x *= 10;
-            y *= 10;
-            x += coords.0;
-            y += coords.1;
-            self.coords.insert(handle, (x, y));
-            self.broadcast_event(&Event::Movement(handle, x, y));
-        }
-
-         */
-        //}
     }
-}
 
-fn is_within_bounds(a: i32, b: i32) -> bool {
-    a > -10 && a < 380 && b > -10 && b < 380
+    fn on_key_down(&mut self, conn_index: usize, key_code: KeyCode) {
+        let player_handle = self.player_handles[conn_index];
+        let vel = if let Some(vel) = self.velocity.get_mut(&player_handle) {
+            vel
+        } else {
+            self.velocity.insert(player_handle, (0.0, 0.0));
+            self.velocity.get_mut(&player_handle).unwrap()
+        };
+        const VELOCITY: f32 = 200.0;
+        match key_code {
+            KeyCode::Up => vel.1 -= VELOCITY,
+            KeyCode::Down => vel.1 += VELOCITY,
+            KeyCode::Left => vel.0 -= VELOCITY,
+            KeyCode::Right => vel.0 += VELOCITY,
+            _ => (),
+        }
+    }
 }
