@@ -46,6 +46,7 @@ pub struct Connection<PROTOCOL: Protocol> {
 impl<PROTOCOL: Protocol> Connection<PROTOCOL> {
     pub fn from_socket(socket: TcpStream) -> Self {
         socket.set_nonblocking(true);
+        socket.set_nodelay(true);
         let endpoint = Endpoint::Socket(socket);
         Self {
             endpoint,

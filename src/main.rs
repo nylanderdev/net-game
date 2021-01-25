@@ -12,11 +12,13 @@ mod misc;
 mod net;
 
 use crate::game::Server;
+use std::process::exit;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() {
-        panic!("Usage error");
+        eprintln!("Usage error");
+        exit(1);
     }
     if args[0] == "-host" {
         std::thread::spawn(server_main);

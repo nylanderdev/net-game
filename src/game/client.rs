@@ -16,7 +16,7 @@ pub struct Client<PROTOCOL: Protocol> {
 impl<PROTOCOL: Protocol> Client<PROTOCOL> {
     pub fn main(&self, remote: Connection<PROTOCOL>) {
         let mut window_mode = WindowMode::default();
-        window_mode = window_mode.dimensions(400.0, 400.0);
+        window_mode = window_mode.dimensions(500.0, 500.0);
         // Make a Context.
         let (mut ctx, mut event_loop) = ContextBuilder::new("my_game", "Cool Game Author")
             .window_mode(window_mode)
@@ -154,7 +154,11 @@ impl<PROTOCOL: Protocol> EventHandler for MyGame<PROTOCOL> {
                 Rect::new(coord.0 as f32, coord.1 as f32, 50.0, 50.0),
                 graphics::BLACK,
             )?;
-            graphics::draw(ctx, &rect, graphics::DrawParam::default())?;
+            let point = ggez::nalgebra::Point2::new(coord.0 + 25.0, coord.1 + 25.0);
+            let params = graphics::DrawParam::new()
+                .rotation(coord.2.to_radians())
+                .offset(point);
+            graphics::draw(ctx, &rect, params)?;
         }
         graphics::present(ctx)
     }

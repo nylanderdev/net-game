@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use ggez::event::KeyCode;
 
 pub type Handle = u64;
@@ -10,8 +12,10 @@ pub enum Event {
     Ready,
     Start,
     Movement(Handle, f32, f32, f32),
+    #[deprecated]
     RequestMovement(Handle, f32, f32, f32),
     Custom(u32, Vec<u8>),
+    #[deprecated]
     Yield(Handle),
     Spawn(Handle),
     KeyDown(KeyCode),

@@ -1,19 +1,22 @@
-use crate::misc::State;
+use crate::game::ecs::{prefabs, ControlSystem, Entity, PositionWatcherSystem, System};
 use crate::net::{Connection, Event, EventListener, Handle, Protocol, NULL_HANDLE};
 use ggez::event::KeyCode;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 const CLIENT_COUNT: usize = 2;
 
 pub struct Server<PROTOCOL: Protocol> {
     clients: [Connection<PROTOCOL>; CLIENT_COUNT],
-    owned_handles: [Vec<Handle>; CLIENT_COUNT],
-    player_handles: [Handle; CLIENT_COUNT],
     handles: HashSet<Handle>,
-    velocity: HashMap<Handle, (f32, f32)>,
-    position: HashMap<Handle, State<(f32, f32, f32)>>,
+    // The latest handle to be assigned
     last_handle: Handle,
+    // Keys currently held down for each client
+    pressed_keys: [HashSet<KeyCode>; CLIENT_COUNT],
+    systems: Vec<Box<dyn System>>,
+    position_watcher: PositionWatcherSystem,
+    entities: Vec<Entity>,
+    events: VecDeque<Event>,
     delta_time: f32,
 }
 
@@ -23,66 +26,33 @@ impl<PROTOCOL: Protocol> Server<PROTOCOL> {
         self.spawn_players();
         let mut last_frame = Instant::now();
         let mut last_broadcast = Instant::now();
-        const MIN_BROADCAST_DURATION: Duration = Duration::from_micros(100);
+        const MIN_BROADCAST_DURATION: Duration = Duration::from_micros(0);
+        const MIN_FRAME_DURATION: Duration = Duration::from_millis(20);
         loop {
             for i in 0..self.clients.len() {
                 if let Some(event) = self.clients[i].recv() {
                     self.handle(i, event);
                 }
             }
-            self.delta_time = last_frame.elapsed().as_secs_f32();
-            self.apply_physics();
-            last_frame = Instant::now();
-            if last_broadcast.elapsed() >= MIN_BROADCAST_DURATION {
-                self.send_position();
-                last_broadcast = Instant::now();
-            }
-        }
-    }
-
-    fn spawn_players(&mut self) {
-        for i in 0..self.clients.len() {
-            self.spawn();
-            self.owned_handles[i].push(self.last_handle);
-            self.player_handles[i] = self.last_handle;
-            self.clients[i].send(&Event::Yield(self.last_handle));
-        }
-    }
-
-    fn spawn(&mut self) {
-        let handle = self.last_handle + 1;
-        self.handles.insert(handle);
-        self.position.insert(handle, State::new((0.0, 0.0, 0.0)));
-        self.broadcast_event(&Event::Spawn(handle));
-        self.last_handle = handle;
-    }
-
-    fn apply_physics(&mut self) {
-        for handle in &self.handles {
-            let vel = if let Some((x, y)) = self.velocity.get(handle) {
-                (*x, *y)
-            } else {
-                (0.0, 0.0)
-            };
-            if let Some(pos) = self.position.get_mut(handle) {
-                if vel != (0.0, 0.0) {
-                    //println!("{:?} : {}", **pos, self.delta_time.log10().round() as isize);
-                    pos.0 += vel.0 * self.delta_time;
-                    pos.1 += vel.1 * self.delta_time;
+            if last_frame.elapsed() >= MIN_FRAME_DURATION {
+                self.delta_time = last_frame.elapsed().as_secs_f32();
+                last_frame = Instant::now();
+                let mut new_events = self.call_systems();
+                self.events.append(&mut new_events);
+                if last_broadcast.elapsed() >= MIN_BROADCAST_DURATION {
+                    // todo: reason about whether this line should come before or after broadcasting
+                    last_broadcast = Instant::now();
+                    // todo: new_events and movement_events should come in the right order
+                    // this will require some ecs overhauling
+                    let mut movement_events = self.get_movement_events();
+                    self.events.append(&mut movement_events);
+                    while !self.events.is_empty() {
+                        if let Some(event) = self.events.pop_front() {
+                            self.broadcast_event(&event)
+                        }
+                    }
                 }
             }
-        }
-    }
-
-    fn send_position(&mut self) {
-        let mut events = Vec::with_capacity(self.position.len());
-        for (handle, pos) in &mut self.position {
-            if pos.invalidated_since() {
-                events.push(Event::Movement(*handle, pos.0, pos.1, pos.2));
-            }
-        }
-        for event in events {
-            self.broadcast_event(&event);
         }
     }
 
@@ -90,14 +60,45 @@ impl<PROTOCOL: Protocol> Server<PROTOCOL> {
         let clients = [client1, client2];
         Self {
             clients,
-            owned_handles: [vec![], vec![]],
-            player_handles: [NULL_HANDLE, NULL_HANDLE],
             handles: Default::default(),
-            velocity: HashMap::new(),
-            position: HashMap::new(),
-            last_handle: 0,
+            last_handle: NULL_HANDLE,
+            pressed_keys: [HashSet::new(), HashSet::new()],
+            systems: vec![Box::new(ControlSystem)],
+            position_watcher: PositionWatcherSystem,
+            entities: vec![],
+            events: VecDeque::new(),
             delta_time: 0.0,
         }
+    }
+
+    fn call_systems(&mut self) -> VecDeque<Event> {
+        // todo: maybe don't clone the keys each time
+        let mut ctx = ServerContext::new(self.pressed_keys.clone(), self.delta_time);
+        for system in &mut self.systems {
+            system.update(&mut self.entities, &mut ctx);
+        }
+        ctx.take_events()
+    }
+
+    fn get_movement_events(&mut self) -> VecDeque<Event> {
+        let mut ctx = ServerContext::new(self.pressed_keys.clone(), self.delta_time);
+        self.position_watcher.update(&mut self.entities, &mut ctx);
+        ctx.take_events()
+    }
+
+    fn spawn_players(&mut self) {
+        for i in 0..self.clients.len() {
+            self.spawn();
+            self.entities
+                .push(prefabs::player(self.last_handle, i, 0.0, 0.0, 0.0));
+        }
+    }
+
+    fn spawn(&mut self) {
+        let handle = self.last_handle + 1;
+        self.handles.insert(handle);
+        self.broadcast_event(&Event::Spawn(handle));
+        self.last_handle = handle;
     }
 
     fn await_clients(&mut self) {
@@ -122,38 +123,43 @@ impl<PROTOCOL: Protocol> Server<PROTOCOL> {
 
 impl<PROTOCOL: Protocol> EventListener for Server<PROTOCOL> {
     fn on_key_up(&mut self, conn_index: usize, key_code: KeyCode) {
-        let player_handle = self.player_handles[conn_index];
-        let vel = if let Some(vel) = self.velocity.get_mut(&player_handle) {
-            vel
-        } else {
-            self.velocity.insert(player_handle, (0.0, 0.0));
-            self.velocity.get_mut(&player_handle).unwrap()
-        };
-        const VELOCITY: f32 = -200.0;
-        match key_code {
-            KeyCode::Up => vel.1 -= VELOCITY,
-            KeyCode::Down => vel.1 += VELOCITY,
-            KeyCode::Left => vel.0 -= VELOCITY,
-            KeyCode::Right => vel.0 += VELOCITY,
-            _ => (),
-        }
+        self.pressed_keys[conn_index].remove(&key_code);
     }
 
     fn on_key_down(&mut self, conn_index: usize, key_code: KeyCode) {
-        let player_handle = self.player_handles[conn_index];
-        let vel = if let Some(vel) = self.velocity.get_mut(&player_handle) {
-            vel
-        } else {
-            self.velocity.insert(player_handle, (0.0, 0.0));
-            self.velocity.get_mut(&player_handle).unwrap()
-        };
-        const VELOCITY: f32 = 200.0;
-        match key_code {
-            KeyCode::Up => vel.1 -= VELOCITY,
-            KeyCode::Down => vel.1 += VELOCITY,
-            KeyCode::Left => vel.0 -= VELOCITY,
-            KeyCode::Right => vel.0 += VELOCITY,
-            _ => (),
+        self.pressed_keys[conn_index].insert(key_code);
+    }
+}
+
+pub struct ServerContext {
+    // HashSets of keys pressed on each client
+    input_devices: [HashSet<KeyCode>; CLIENT_COUNT],
+    delta_time: f32,
+    events: VecDeque<Event>,
+}
+
+impl ServerContext {
+    fn new(input_devices: [HashSet<KeyCode>; CLIENT_COUNT], delta_time: f32) -> Self {
+        Self {
+            input_devices,
+            delta_time,
+            events: VecDeque::new(),
         }
+    }
+
+    pub fn pressed_keys(&self, input_device_index: usize) -> &HashSet<KeyCode> {
+        &self.input_devices[input_device_index]
+    }
+
+    pub fn delta_time(&self) -> f32 {
+        self.delta_time
+    }
+
+    pub fn push_event(&mut self, event: Event) {
+        self.events.push_back(event);
+    }
+
+    fn take_events(self) -> VecDeque<Event> {
+        self.events
     }
 }

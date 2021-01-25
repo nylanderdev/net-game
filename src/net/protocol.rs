@@ -164,7 +164,6 @@ impl SmartProtocol {
         if data.len() == EXPECTED_LENGTH {
             let handle = unsigned_from_bytes(&data[..HANDLE_SIZE]) as Handle;
             let x = f32_from_bytes(&data[HANDLE_SIZE..HANDLE_SIZE + COORD_SIZE]) as f32;
-            //let y = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE..EXPECTED_LENGTH]) as f32;
             let y = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE..HANDLE_SIZE + COORD_SIZE * 2])
                 as f32;
             let angle = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE * 2..EXPECTED_LENGTH]) as f32;
@@ -191,7 +190,6 @@ impl SmartProtocol {
         if data.len() == EXPECTED_LENGTH {
             let handle = unsigned_from_bytes(&data[..HANDLE_SIZE]) as Handle;
             let x = f32_from_bytes(&data[HANDLE_SIZE..HANDLE_SIZE + COORD_SIZE]) as f32;
-            //let y = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE..EXPECTED_LENGTH]) as f32;
             let y = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE..HANDLE_SIZE + COORD_SIZE * 2])
                 as f32;
             let angle = f32_from_bytes(&data[HANDLE_SIZE + COORD_SIZE * 2..EXPECTED_LENGTH]) as f32;
