@@ -3,7 +3,7 @@ use crate::game::ServerContext;
 use ggez::event::KeyCode;
 use std::collections::HashSet;
 
-pub type ControlScript = fn(&mut Entity, &HashSet<KeyCode>, f32);
+pub type ControlScript = fn(&mut Entity, &mut ServerContext, HashSet<KeyCode>, f32);
 
 pub struct ControlComponent {
     // Parameters: owning entity, keys pressed and delta_time
@@ -19,6 +19,10 @@ impl ControlComponent {
             input_device_index,
         }
     }
+
+    pub fn get_input_device_index(&self) -> usize {
+        self.input_device_index
+    }
 }
 
 pub struct ControlSystem;
@@ -30,7 +34,8 @@ impl System for ControlSystem {
                 let input_device_index = component.input_device_index;
                 (component.script)(
                     entity,
-                    ctx.pressed_keys(input_device_index),
+                    ctx,
+                    ctx.pressed_keys(input_device_index).clone(),
                     ctx.delta_time(),
                 );
             }

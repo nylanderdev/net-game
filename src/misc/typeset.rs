@@ -3,6 +3,8 @@
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
+/// A struct which allows the storage and retrieval of a single object of each and every type
+/// Completely type safe. Simple, but kinda proud of this one.
 pub struct TypeSet {
     elements: HashMap<TypeId, Box<dyn Any>>,
 }

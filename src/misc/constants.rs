@@ -1,7 +1,13 @@
+use crate::game::graphics::MeshType;
 use ggez::event::KeyCode;
+use ggez::graphics::Color;
 use lazy_static;
 use std::collections::HashMap;
 
+/// The default color for any color use where no other color exists to take its place
+pub const DEFAULT_COLOR: Color = Color::new(0.7, 0.0, 0.7, 1.0);
+
+/// All the keys in ggez, at least as far as I know. Used for lookup during deserialization
 pub const ALL_KEYS: [KeyCode; 161] = [
     KeyCode::Key1,
     KeyCode::Key2,
@@ -166,14 +172,35 @@ pub const ALL_KEYS: [KeyCode; 161] = [
     KeyCode::Cut,
 ];
 
+/// All the mesh types we support for serializing. Used for lookup during deserialization
+pub const ALL_MESH_TYPES: [MeshType; 6] = [
+    MeshType::Default,
+    MeshType::Tank,
+    MeshType::Bullet,
+    MeshType::Wall,
+    MeshType::Heal,
+    MeshType::None
+];
+
+// Created lazily using some genius's magic (I think it's smart-pointers or something)
 lazy_static! {
+// Maps made from ALL_MESH_TYPES and ALL_KEYS that allow for fast index lookup during serialization
     pub static ref KEY_INDEX_MAP: HashMap<KeyCode, usize> = make_key_index_map();
+    pub static ref MESH_INDEX_MAP: HashMap<MeshType, usize> = make_mesh_index_map();
 }
 
 fn make_key_index_map() -> HashMap<KeyCode, usize> {
     let mut map = HashMap::with_capacity(ALL_KEYS.len());
     for i in 0..ALL_KEYS.len() {
         map.insert(ALL_KEYS[i], i);
+    }
+    map
+}
+
+fn make_mesh_index_map() -> HashMap<MeshType, usize> {
+    let mut map = HashMap::with_capacity(ALL_MESH_TYPES.len());
+    for i in 0..ALL_MESH_TYPES.len() {
+        map.insert(ALL_MESH_TYPES[i], i);
     }
     map
 }

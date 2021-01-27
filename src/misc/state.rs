@@ -1,5 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
+/// A smart pointer which wraps an object and records whether it's mutable state has been accessed
 pub struct State<T> {
     t: T,
     invalidated: bool,

@@ -302,6 +302,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "collider"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba1462139efca9ca15e335ae40d43d1fa998d8ff7270d8c12a72decf1d066e1a"
+dependencies = [
+ "fnv",
+]
+
+[[package]]
 name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1197,6 +1206,7 @@ dependencies = [
 name = "netgame"
 version = "0.1.0"
 dependencies = [
+ "collider",
  "ggez",
  "lazy_static",
 ]

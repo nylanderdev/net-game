@@ -1,8 +1,10 @@
 #![allow(deprecated, unused)]
 
-use crate::misc::constants::{ALL_KEYS, KEY_INDEX_MAP};
+use crate::game::graphics::MeshType;
+use crate::misc::constants::{ALL_KEYS, ALL_MESH_TYPES, KEY_INDEX_MAP, MESH_INDEX_MAP};
 use crate::net::{Event, Handle};
 use ggez::event::KeyCode;
+use ggez::graphics::Color;
 use std::mem::size_of;
 
 pub trait Protocol {
@@ -10,84 +12,8 @@ pub trait Protocol {
     fn decode(bytes: &[u8]) -> Option<Event>;
 }
 
-#[deprecated]
-pub struct DumbProtocol;
-
-impl Protocol for DumbProtocol {
-    fn encode(event: &Event) -> Vec<u8> {
-        let code_string = format!("{:?}", event);
-        code_string.into_bytes()
-    }
-
-    fn decode(bytes: &[u8]) -> Option<Event> {
-        let byte_vec = Vec::from(bytes);
-        let mut string = String::from_utf8(byte_vec).ok()?;
-        string.retain(|c| !c.is_whitespace());
-        let first_paren = string.find('(');
-        let last_paren = string.find(')');
-        let event = if first_paren.is_some()
-            && last_paren.is_some()
-            && last_paren.unwrap() == string.len() - 1
-        {
-            // Tuple struct
-            let enum_name = &string[..first_paren.unwrap()];
-            let contents = &string[first_paren.unwrap() + 1..last_paren.unwrap()];
-            match enum_name {
-                "Movement" => {
-                    let coords: Vec<f32> =
-                        contents.split(",").filter_map(|s| s.parse().ok()).collect();
-                    if coords.len() == 4 {
-                        Some(Event::Movement(
-                            coords[0] as u64,
-                            coords[1],
-                            coords[2],
-                            coords[3],
-                        ))
-                    } else {
-                        None
-                    }
-                }
-                "RequestMovement" => {
-                    let mut split_contents = contents.split(",");
-                    let handle = split_contents.next()?.parse::<Handle>().ok()?;
-                    let coords: Vec<f32> = split_contents.filter_map(|s| s.parse().ok()).collect();
-                    if coords.len() == 3 {
-                        Some(Event::RequestMovement(
-                            handle, coords[0], coords[1], coords[2],
-                        ))
-                    } else {
-                        None
-                    }
-                }
-                "Yield" => {
-                    let parsed = contents.parse::<Handle>().ok()?;
-                    Some(Event::Yield(parsed))
-                }
-                "Spawn" => {
-                    let parsed = contents.parse::<Handle>().ok()?;
-                    Some(Event::Spawn(parsed))
-                }
-                "Custom" => {
-                    // Filter out brackets from the vec
-                    let numbers = contents.replace("[", "").replace("]", "");
-                    let mut split_numbers = numbers.split(",");
-                    let kind = split_numbers.next()?.parse::<u32>().ok()?;
-                    let bytes: Vec<u8> = split_numbers.filter_map(|s| s.parse().ok()).collect();
-                    Some(Event::Custom(kind, bytes))
-                }
-                _ => None,
-            }
-        } else {
-            match &string[..] {
-                "Ready" => Some(Event::Ready),
-                "Start" => Some(Event::Start),
-                _ => None,
-            }
-        };
-        event
-    }
-}
-
+/// A concise protocol which serializes events into a leading bytes signifying variant
+/// and a series of trailing bytes containing the data held by an event
 pub struct SmartProtocol;
 
 impl Protocol for SmartProtocol {
@@ -101,9 +27,14 @@ impl Protocol for SmartProtocol {
             }
             Event::Custom(kind, data) => Self::encode_custom(*kind, data),
             Event::Yield(handle) => Self::encode_yield(*handle),
-            Event::Spawn(handle) => Self::encode_spawn(*handle),
+            Event::Spawn(handle, mesh_type) => Self::encode_spawn(*handle, *mesh_type),
+            Event::PickUp(handle, mesh_type) => Self::encode_pick_up(*handle, *mesh_type),
+            Event::Despawn(handle) => Self::encode_despawn(*handle),
             Event::KeyDown(key_code) => Self::encode_key_down(*key_code),
             Event::KeyUp(key_code) => Self::encode_key_up(*key_code),
+            Event::Health(handle, health) => Self::encode_health(*handle, *health),
+            Event::Color(handle, color) => Self::encode_color(*handle, *color),
+            Event::Dimension(handle, width, height) => Self::encode_dimension(*handle, *width, *height)
         }
     }
 
@@ -120,15 +51,35 @@ impl Protocol for SmartProtocol {
 impl SmartProtocol {
     fn interpret_data(leading_byte: u8, data: &[u8]) -> Option<Event> {
         match leading_byte {
+            // r is for ready
             b'r' => Self::decode_ready(data),
+            // S is for Start
             b'S' => Self::decode_start(data),
+            // M is for Movement
             b'M' => Self::decode_movement(data),
+            // m is for movement but less authoritative
             b'm' => Self::decode_request_movement(data),
+            // c is for custom
             b'c' => Self::decode_custom(data),
+            // Y is for Yield
             b'Y' => Self::decode_yield(data),
+            // P is for ...sPawn?
             b'P' => Self::decode_spawn(data),
+            // p is for pick up
+            b'p' => Self::decode_pick_up(data),
+            // d is for down
             b'd' => Self::decode_key_down(data),
+            // u is for up
             b'u' => Self::decode_key_up(data),
+            // B is for Bye!
+            b'B' => Self::decode_despawn(data),
+            // H is for Health
+            b'H' => Self::decode_health(data),
+            // C is for Color (this protocol is not to be used within the UK)
+            b'C' => Self::decode_color(data),
+            // D is for Dimension
+            b'D' => Self::decode_dimension(data),
+            // _ is for unsupported or invalid
             _ => None,
         }
     }
@@ -140,6 +91,10 @@ impl SmartProtocol {
             None
         }
     }
+
+    /* Below are all encoding and decoding functions,
+     * they're messy, but also pretty straightforward
+     * so most won't be commented */
 
     fn encode_ready() -> Vec<u8> {
         vec![b'r']
@@ -244,18 +199,52 @@ impl SmartProtocol {
     }
 
     fn decode_spawn(data: &[u8]) -> Option<Event> {
-        if data.len() == 8 {
-            let handle = unsigned_from_bytes(data) as Handle;
-            Some(Event::Spawn(handle))
+        if data.len() == size_of::<Handle>() + size_of::<usize>() {
+            let handle = unsigned_from_bytes(&data[..size_of::<Handle>()]) as Handle;
+            // Meshes are serialized using an array, look up which index contains this mesh,
+            // then send the index
+            let mesh_index = unsigned_from_bytes(&data[size_of::<Handle>()..]) as usize;
+            let mesh_type = ALL_MESH_TYPES[mesh_index];
+            Some(Event::Spawn(handle, mesh_type))
         } else {
             None
         }
     }
 
-    fn encode_spawn(handle: Handle) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(1 + size_of::<Handle>());
+    fn encode_spawn(handle: Handle, mesh_type: MeshType) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(1 + size_of::<Handle>() + size_of::<usize>());
+        let mesh_index = MESH_INDEX_MAP.get(&mesh_type).expect(&format!(
+            "Critical protocol failure. Missing mesh_type {:?} in MESH_INDEX_MAP",
+            mesh_type
+        ));
         bytes.push(b'P');
         bytes.append(&mut u64_to_bytes(handle));
+        bytes.append(&mut usize_to_bytes(*mesh_index));
+        bytes
+    }
+
+    fn decode_pick_up(data: &[u8]) -> Option<Event> {
+        if data.len() == size_of::<Handle>() + size_of::<usize>() {
+            let handle = unsigned_from_bytes(&data[..size_of::<Handle>()]) as Handle;
+            // Meshes are serialized using an array, look up which index contains this mesh,
+            // then send the index
+            let mesh_index = unsigned_from_bytes(&data[size_of::<Handle>()..]) as usize;
+            let mesh_type = ALL_MESH_TYPES[mesh_index];
+            Some(Event::PickUp(handle, mesh_type))
+        } else {
+            None
+        }
+    }
+
+    fn encode_pick_up(handle: Handle, mesh_type: MeshType) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(1 + size_of::<Handle>() + size_of::<usize>());
+        let mesh_index = MESH_INDEX_MAP.get(&mesh_type).expect(&format!(
+            "Critical protocol failure. Missing mesh_type {:?} in MESH_INDEX_MAP",
+            mesh_type
+        ));
+        bytes.push(b'p');
+        bytes.append(&mut u64_to_bytes(handle));
+        bytes.append(&mut usize_to_bytes(*mesh_index));
         bytes
     }
 
@@ -270,6 +259,8 @@ impl SmartProtocol {
     }
 
     fn encode_key_down(key_code: KeyCode) -> Vec<u8> {
+        // Keys are serialized using an array, look up which index contains this key_code,
+        // then send the index
         let key_index = KEY_INDEX_MAP.get(&key_code).expect(&format!(
             "Critical protocol failure. Missing code {:?} in KEY_INDEX_MAP",
             key_code
@@ -291,6 +282,8 @@ impl SmartProtocol {
     }
 
     fn encode_key_up(key_code: KeyCode) -> Vec<u8> {
+        // Keys are serialized using an array, look up which index contains this key_code,
+        // then send the index
         let key_index = KEY_INDEX_MAP.get(&key_code).expect(&format!(
             "Critical protocol failure. Missing code {:?} in KEY_INDEX_MAP",
             key_code
@@ -298,6 +291,87 @@ impl SmartProtocol {
         let mut bytes = Vec::with_capacity(1 + size_of::<usize>());
         bytes.push(b'u');
         bytes.append(&mut usize_to_bytes(*key_index));
+        bytes
+    }
+
+    fn decode_despawn(data: &[u8]) -> Option<Event> {
+        if data.len() == 8 {
+            let handle = unsigned_from_bytes(data) as Handle;
+            Some(Event::Despawn(handle))
+        } else {
+            None
+        }
+    }
+
+    fn encode_despawn(handle: Handle) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(1 + size_of::<Handle>());
+        bytes.push(b'B');
+        bytes.append(&mut u64_to_bytes(handle));
+        bytes
+    }
+
+    fn decode_health(data: &[u8]) -> Option<Event> {
+        if data.len() == size_of::<Handle>() + size_of::<u8>() {
+            let handle = unsigned_from_bytes(&data[..8]) as Handle;
+            let health = unsigned_from_bytes(&data[8..]) as u8;
+            Some(Event::Health(handle, health))
+        } else {
+            None
+        }
+    }
+
+    fn encode_health(handle: Handle, health: u8) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(1 + size_of::<Handle>() + size_of::<u8>());
+        bytes.push(b'H');
+        bytes.append(&mut u64_to_bytes(handle));
+        bytes.push(health);
+        bytes
+    }
+
+    fn decode_color(data: &[u8]) -> Option<Event> {
+        if data.len() == size_of::<Handle>() + 4 * size_of::<u8>() {
+            let handle = unsigned_from_bytes(&data[..8]) as Handle;
+            let r = (data[8] as f32) / 255.0;
+            let g = (data[9] as f32) / 255.0;
+            let b = (data[10] as f32) / 255.0;
+            let a = (data[11] as f32) / 255.0;
+            Some(Event::Color(handle, Color::new(r, g, b, a)))
+        } else {
+            None
+        }
+    }
+
+    fn encode_color(handle: Handle, color: Color) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(1 + size_of::<Handle>() + 4 * size_of::<u8>());
+        bytes.push(b'C');
+        bytes.append(&mut u64_to_bytes(handle));
+        bytes.push((color.r * 255.0) as u8);
+        bytes.push((color.g * 255.0) as u8);
+        bytes.push((color.b * 255.0) as u8);
+        bytes.push((color.a * 255.0) as u8);
+        bytes
+    }
+
+    fn decode_dimension(data: &[u8]) -> Option<Event> {
+        const HANDLE_SIZE: usize = size_of::<Handle>();
+        const DIM_SIZE: usize = size_of::<f32>();
+        const EXPECTED_LENGTH: usize = HANDLE_SIZE + 2 * DIM_SIZE;
+        if data.len() == EXPECTED_LENGTH {
+            let handle = unsigned_from_bytes(&data[..HANDLE_SIZE]) as Handle;
+            let width = f32_from_bytes(&data[HANDLE_SIZE..HANDLE_SIZE + DIM_SIZE]);
+            let height = f32_from_bytes(&data[HANDLE_SIZE + DIM_SIZE..HANDLE_SIZE + DIM_SIZE * 2]);
+            Some(Event::Dimension(handle, width, height))
+        } else {
+            None
+        }
+    }
+
+    fn encode_dimension(handle: Handle, width: f32, height: f32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(b'D');
+        bytes.append(&mut u64_to_bytes(handle));
+        bytes.append(&mut f32_to_bytes(width));
+        bytes.append(&mut f32_to_bytes(height));
         bytes
     }
 }
