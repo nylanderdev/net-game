@@ -3,10 +3,12 @@ use crate::game::ServerContext;
 use crate::game::graphics::MeshType;
 use crate::net::Event;
 
+/// An item is just a mesh used to render it and a script to trigger upon use
 pub type Item = (MeshType, ItemUseScript);
 
 pub type ItemUseScript = fn(&mut Entity);
 
+/// A component enabling an entity to be picked up as an item
 pub struct PickUpComponent {
     item: Item
 }
@@ -55,6 +57,7 @@ impl InventoryComponent {
     }
 }
 
+/// A system which relays any item pick ups or inventory changes to the clients
 pub struct InventorySystem;
 
 impl System for InventorySystem {

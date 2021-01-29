@@ -4,6 +4,7 @@ use crate::game::ServerContext;
 use crate::game::graphics::MeshType;
 use ggez::graphics::Color;
 
+// Walls don't stop tanks or bullets, bullets and tanks stop themselves when hitting walls, as not to be rude.
 fn wall_collision_script(me: usize, other: usize, entities: &mut [Entity], ctx: &mut ServerContext) {}
 
 pub fn wall(handle: Handle, x: f32, y: f32, w: f32, h: f32, color: Color) -> Entity {

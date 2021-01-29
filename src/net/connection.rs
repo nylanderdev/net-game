@@ -120,6 +120,12 @@ impl<PROTOCOL: Protocol> Connection<PROTOCOL> {
         }
         events
     }
+    /// Returns whether this connection is on this machine
+    pub fn is_local(&self) -> bool {
+        match &self.endpoint {
+            Endpoint::Socket(socket) => socket.peer_addr().unwrap().ip().is_loopback()
+        }
+    }
 }
 
 /// Escape reserve bytes ('\n' and '\x1b') by placing the byte '\x1b' before them

@@ -3,6 +3,7 @@ use crate::game::ServerContext;
 use crate::net::Event;
 use ggez::graphics::Color;
 
+/// It's a wrapper for a color that keeps track of when its color changes
 pub struct ColorComponent {
     red: f32,
     green: f32,
@@ -68,6 +69,7 @@ impl ColorComponent {
     }
 }
 
+/// A system which checks if any colored entity changes color and relays that change to the clients
 pub struct ColorSystem;
 
 impl System for ColorSystem {

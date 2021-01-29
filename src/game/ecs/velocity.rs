@@ -1,6 +1,7 @@
 use crate::game::ecs::{Entity, Position, System};
 use crate::game::ServerContext;
 
+/// Well, it's just a velocity. I don't think we ever ended up using the angular_velocity though
 pub struct Velocity {
     velocity: f32,
     angular_velocity: f32,
@@ -27,6 +28,7 @@ impl Velocity {
     }
 }
 
+/// A physics system which calculates an entities new position from its velocity each frame
 pub struct VelocitySystem;
 
 impl System for VelocitySystem {

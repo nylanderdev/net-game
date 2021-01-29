@@ -5,9 +5,11 @@ use ggez::graphics::Color;
 use crate::game::ServerContext;
 
 fn bullet_collision_script(me: usize, other: usize, entities: &mut [Entity], ctx: &mut ServerContext) {
+    // Bullets that hit stuff go bye bye
     entities[me].delete();
 }
 
+/// Generates a bullet which will live for at most 2 seconds
 pub fn bullet(handle: Handle, shooter_handle: Handle, x: f32, y: f32, angle: f32, velocity: f32, color: Color) -> Entity {
     let mut bullet = Entity::new(handle);
     bullet.put_component(Position::new(x, y, angle));

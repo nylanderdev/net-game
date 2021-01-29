@@ -20,6 +20,7 @@ impl Protocol for SmartProtocol {
     fn encode(event: &Event) -> Vec<u8> {
         match event {
             Event::Ready => Self::encode_ready(),
+            Event::Standby => Self::encode_standby(),
             Event::Start => Self::encode_start(),
             Event::Movement(handle, x, y, angle) => Self::encode_movement(*handle, *x, *y, *angle),
             Event::RequestMovement(handle, x, y, angle) => {
@@ -34,7 +35,9 @@ impl Protocol for SmartProtocol {
             Event::KeyUp(key_code) => Self::encode_key_up(*key_code),
             Event::Health(handle, health) => Self::encode_health(*handle, *health),
             Event::Color(handle, color) => Self::encode_color(*handle, *color),
-            Event::Dimension(handle, width, height) => Self::encode_dimension(*handle, *width, *height)
+            Event::Dimension(handle, width, height) => Self::encode_dimension(*handle, *width, *height),
+            Event::GameOver => Self::encode_game_over(),
+            Event::Map(map_index) => Self::encode_map(*map_index)
         }
     }
 
@@ -53,6 +56,8 @@ impl SmartProtocol {
         match leading_byte {
             // r is for ready
             b'r' => Self::decode_ready(data),
+            // s is for standby
+            b's' => Self::decode_standby(data),
             // S is for Start
             b'S' => Self::decode_start(data),
             // M is for Movement
@@ -79,10 +84,18 @@ impl SmartProtocol {
             b'C' => Self::decode_color(data),
             // D is for Dimension
             b'D' => Self::decode_dimension(data),
+            // g is for game over
+            b'g' => Self::decode_game_over(data),
+            // L is for Level
+            b'L' => Self::decode_map(data),
             // _ is for unsupported or invalid
             _ => None,
         }
     }
+
+    /* Below are all encoding and decoding functions,
+     * they're messy, but also pretty straightforward
+     * so most won't be commented */
 
     fn decode_ready(data: &[u8]) -> Option<Event> {
         if data.is_empty() {
@@ -98,6 +111,18 @@ impl SmartProtocol {
 
     fn encode_ready() -> Vec<u8> {
         vec![b'r']
+    }
+
+    fn encode_standby() -> Vec<u8> {
+        vec![b's']
+    }
+
+    fn decode_standby(data: &[u8]) -> Option<Event> {
+        if data.is_empty() {
+            Some(Event::Standby)
+        } else {
+            None
+        }
     }
 
     fn decode_start(data: &[u8]) -> Option<Event> {
@@ -372,6 +397,34 @@ impl SmartProtocol {
         bytes.append(&mut u64_to_bytes(handle));
         bytes.append(&mut f32_to_bytes(width));
         bytes.append(&mut f32_to_bytes(height));
+        bytes
+    }
+
+    fn decode_game_over(data: &[u8]) -> Option<Event> {
+        if data.is_empty() {
+            Some(Event::GameOver)
+        } else {
+            None
+        }
+    }
+
+    fn encode_game_over() -> Vec<u8> {
+        vec![b'g']
+    }
+
+    fn decode_map(data: &[u8]) -> Option<Event> {
+        if data.len() == size_of::<usize>() {
+            let map_index = unsigned_from_bytes(data) as usize;
+            Some(Event::Map(map_index))
+        } else {
+            None
+        }
+    }
+
+    fn encode_map(map_index: usize) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(1 + size_of::<usize>());
+        bytes.push(b'L');
+        bytes.append(&mut usize_to_bytes(map_index));
         bytes
     }
 }

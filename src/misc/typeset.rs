@@ -9,6 +9,10 @@ pub struct TypeSet {
     elements: HashMap<TypeId, Box<dyn Any>>,
 }
 
+// The method names are all pretty self-explanatory.
+// The code is obvious: use TypeId's as keys in a
+// HashMap and guarantee type safety using
+// encapsulation
 impl TypeSet {
     pub fn new() -> Self {
         Self {

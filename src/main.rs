@@ -25,10 +25,10 @@ fn main() {
     if args[0] == "-host" {
         // Spawn the server in another thread and connect to localhost
         std::thread::spawn(server_main);
-        client_main(&"localhost".to_string())
+        client_main(&"localhost".to_string(), true)
     } else {
         // Connect to a remote host
-        client_main(&args[0])
+        client_main(&args[0], false)
     }
 }
 
@@ -36,23 +36,30 @@ fn main() {
 fn server_main() {
     let listener = TcpListener::bind("0.0.0.0:1337").unwrap();
     // Connect to clients
-    let (remote1, _address) = listener.accept().unwrap();
-    let (remote2, _address) = listener.accept().unwrap();
+    let (socket1, address1) = listener.accept().unwrap();
+    let (socket2, _address2) = listener.accept().unwrap();
+    // Check which socket is the local host one
+    // todo: this may have unintended consequences if both are run locally
+    let (host, guest) = if address1.ip().is_loopback() {
+        (socket1, socket2)
+    } else {
+        (socket2, socket1)
+    };
     // Wrap clients in connections and protocols to enable Event exchange
-    let conn1 = Connection::<SmartProtocol>::from_socket(remote1);
-    let conn2 = Connection::<SmartProtocol>::from_socket(remote2);
+    let host_conn = Connection::<SmartProtocol>::from_socket(host);
+    let guest_conn = Connection::<SmartProtocol>::from_socket(guest);
     // Start the server up
-    let mut server = Server::new(conn1, conn2);
+    let mut server = Server::new(host_conn, guest_conn);
     server.main();
 }
 
 /// Connect to a server at port 1337 and the given address
-fn client_main(address: &String) {
+fn client_main(address: &String, host: bool) {
     // Connect to a local or remote host at port 1337
     let remote = TcpStream::connect(format!("{}:1337", address)).unwrap();
     // Wrap the server to enable easy de/serialization
     let conn = Connection::<SmartProtocol>::from_socket(remote);
     // Create a client instance -- Though the server may not have connected the other client yet
     let client = Client::new();
-    client.main(conn);
+    client.main(conn, host);
 }

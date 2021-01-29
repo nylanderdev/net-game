@@ -7,6 +7,8 @@ mod position;
 pub mod prefabs;
 mod ttl;
 mod velocity;
+pub(crate) mod npc;
+
 mod collision;
 mod death;
 mod scale;
@@ -22,11 +24,16 @@ pub use collision::*;
 pub use death::*;
 pub use ttl::*;
 pub use velocity::*;
+pub use npc::*;
 
 use crate::game::ServerContext;
 use crate::misc::TypeSet;
 use crate::net::Handle;
-
+/// This is the entity component system mod. It is largely reused from the last game task
+/// Though the components and systems themselves are new, speaking to the extendability of the code ;)
+/* This macros provide alternative ways of retrieving components, some allow multiple components at a time,
+ * but none of these are currently being used.
+ */
 macro_rules! entity {
     ($entity:ident as $($C:ty),+) => {
         get_components!($entity| $($C),+)
@@ -56,6 +63,7 @@ macro_rules! has_components {
     };
 }
 
+/// An entity is just a fancy wrapper around a TypeSet, but with a handle and a flag for deletion
 pub struct Entity {
     components: TypeSet,
     deleted: bool,
@@ -71,6 +79,9 @@ impl Entity {
         }
     }
 
+    /// Consumes an entity and creates a clone with a different handle
+    /// Used by the server to make sure no entities have the same handles,
+    /// while still allowing entities to spawn one another (not knowing which handles are free)
     pub fn change_handle(self, new_handle: Handle) -> Self {
         Self {
             components: self.components,
@@ -99,16 +110,22 @@ impl Entity {
         self.components.get_mut::<C>()
     }
 
+    /// Marks an entity for deletion.
+    /// This will trigger the ReaperSystem and a DeathsComponent's custom script, if present
     pub fn delete(&mut self) {
         self.deleted = true;
     }
 
+    /// Returns whether the entity is marked for deletion (and should be removed from the game world)
     pub fn deleted(&self) -> bool {
         self.deleted
     }
 }
 
 // todo: Systems could probably be function items instead
+/// A system is called by the server / game world each frame. It is passed all entities currently
+/// in the game world as well as a ServerContext object with API for interacting with the server
+/// in certain, limited ways
 pub trait System {
     fn update(&mut self, entities: &mut [Entity], ctx: &mut ServerContext);
 }

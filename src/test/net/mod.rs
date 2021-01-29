@@ -28,6 +28,12 @@ fn smart_protocol_encode_decode_ready() {
 }
 
 #[test]
+fn smart_protocol_encode_decode_standby() {
+    let expected = Event::Standby;
+    test_protocol_encode_decode::<SmartProtocol>(expected);
+}
+
+#[test]
 fn smart_protocol_encode_decode_start() {
     let expected = Event::Start;
     test_protocol_encode_decode::<SmartProtocol>(expected);
@@ -96,6 +102,18 @@ fn smart_protocol_encode_decode_dimension() {
 #[test]
 fn smart_protocol_encode_decode_pick_up() {
     let expected = Event::PickUp(32342, MeshType::Heal);
+    test_protocol_encode_decode::<SmartProtocol>(expected);
+}
+
+#[test]
+fn smart_protocol_encode_decode_game_over() {
+    let expected = Event::GameOver;
+    test_protocol_encode_decode::<SmartProtocol>(expected);
+}
+
+#[test]
+fn smart_protocol_encode_decode_map() {
+    let expected = Event::Map(usize::max_value());
     test_protocol_encode_decode::<SmartProtocol>(expected);
 }
 

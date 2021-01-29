@@ -2,7 +2,9 @@ use crate::game::ecs::{Entity, System};
 use crate::game::ServerContext;
 use crate::net::Event;
 
+/// A struct containing coordinates and info about whether they've changed since last
 pub struct Position {
+    // It goes x, y, angle
     coords_and_angle: (f32, f32, f32),
     has_changed: bool,
 }
@@ -49,6 +51,7 @@ impl Position {
     }
 }
 
+/// A system which relays any change in position to the clients
 pub struct PositionWatcherSystem;
 
 impl System for PositionWatcherSystem {

@@ -29,6 +29,7 @@ impl<T> State<T> {
     }
 }
 
+// For any further info on Deref and DerefMut, see the Rust documentation
 impl<T> Deref for State<T> {
     type Target = T;
 

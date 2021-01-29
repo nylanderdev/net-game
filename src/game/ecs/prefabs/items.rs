@@ -3,6 +3,7 @@ use crate::net::Handle;
 use crate::game::graphics::MeshType;
 use crate::game::ServerContext;
 
+/// Inserts an item (entities[me]) into the inventory of other, if any
 fn pickup_script(me: usize, other: usize, entities: &mut [Entity], ctx: &mut ServerContext) {
     let item = if let Some(item) = entities[me].get_component::<PickUpComponent>() {
         item.get_item()
@@ -19,10 +20,12 @@ fn pickup_script(me: usize, other: usize, entities: &mut [Entity], ctx: &mut Ser
 
 fn heal_item_script(user: &mut Entity) {
     if let Some(health) = user.get_component_mut::<Health>() {
+        // Heal by half of the
         health.set_health((50 - health.get_health()) / 2 + health.get_health());
     }
 }
 
+/// Creates a regular ol' healing item. Heals 50% of lost health
 pub fn heal_item(handle: Handle, x: f32, y: f32) -> Entity {
     let mut heal = Entity::new(handle);
     heal.put_component(MeshType::Heal);

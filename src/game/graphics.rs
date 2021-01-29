@@ -22,6 +22,7 @@ impl Default for MeshType {
     }
 }
 
+// Abstract factory, kind of
 pub fn generator_from_mesh_type(mesh_type: MeshType) -> MeshGenerator {
     match mesh_type {
         MeshType::Tank => tank_mesh,

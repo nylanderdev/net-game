@@ -2,6 +2,7 @@ use crate::game::ecs::{Entity, System};
 use crate::game::ServerContext;
 use crate::net::Event;
 
+/// A struct which keeps track of health and when it changes
 pub struct Health {
     max_health: u8,
     health: u8,
@@ -31,6 +32,7 @@ impl Health {
     }
 }
 
+/// A system which relays any changes in health back to the clients
 pub struct HealthSystem;
 
 impl System for HealthSystem {
@@ -39,6 +41,7 @@ impl System for HealthSystem {
             let handle = entity.get_handle();
             if let Some(health) = entity.get_component_mut::<Health>() {
                 if health.has_changed {
+                    // Tell the clients the new health amount of this entity
                     ctx.push_event(Event::Health(handle, health.health));
                     health.has_changed = false;
                 }

@@ -7,6 +7,7 @@
     <groupId>dev.nylander.netgame</groupId>
     <artifactId>launcher</artifactId>
     <version>0.1.0-SNAPSHOT</version>
+
     <properties>
         <java.version>11</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -21,6 +22,7 @@
         </dependency>
     </dependencies>
     <build>
+        <finalName>launcher</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

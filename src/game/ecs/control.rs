@@ -25,6 +25,8 @@ impl ControlComponent {
     }
 }
 
+/// A system which gets input/keyboard info from the clients via the server and serves it up
+/// to subscribing entities (i.e those with ControlComponents) such as player tanks
 pub struct ControlSystem;
 
 impl System for ControlSystem {
@@ -32,6 +34,7 @@ impl System for ControlSystem {
         for entity in entities {
             if let Some(component) = entity.get_component::<ControlComponent>() {
                 let input_device_index = component.input_device_index;
+                // Call the control script, passing in the relevant keyboard information
                 (component.script)(
                     entity,
                     ctx,

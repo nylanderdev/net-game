@@ -2,6 +2,7 @@ use crate::game::ecs::{Entity, System};
 use crate::game::ServerContext;
 use crate::net::Event;
 
+/// A struct containing info on how to graphically scale meshes of an object. Mainly used for walls.
 pub struct Scale {
     width: f32,
     height: f32,
@@ -50,6 +51,7 @@ impl Default for Scale {
     }
 }
 
+/// A system which relays any changes in scale to the clients
 pub struct ScaleSystem;
 
 impl System for ScaleSystem {

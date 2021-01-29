@@ -1,12 +1,17 @@
 package dev.nylander.netgame;
 
+import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.scene.control.Button;
 import javafx.scene.control.TextField;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.Optional;
 
 public class LauncherController {
+    Optional<InputStream> netGameErr;
+
     @FXML
     TextField addressField;
 
@@ -19,7 +24,9 @@ public class LauncherController {
     @FXML
     private void launchAsHost() throws IOException {
         Runtime runtime = Runtime.getRuntime();
-        runtime.exec("netgame -host");
+        Process netGame = runtime.exec("netgame -host");
+        //InputStream netGameErr = netGame.getErrorStream();
+        //this.netGameErr = Optional.of(netGameErr);
     }
 
     @FXML

@@ -5,6 +5,8 @@ use collider::{HbId, Collider, HbProfile, Hitbox, HbEvent};
 use crate::net::Handle;
 use collider::geom::{Shape, v2};
 
+/// A collision script is just a handler that takes regular system parameters as well as two indices
+/// to the collided objects
 pub type CollisionScript = fn(me: usize, other: usize, entities: &mut [Entity], ctx: &mut ServerContext);
 
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -25,6 +27,8 @@ impl CollisionClass {
 }
 
 #[derive(Copy, Clone)]
+/// It's just a handle (for the sake of the collision library), a class which dictates which
+/// components can collide with which, and a script to call upon a collision
 pub struct CollisionComponent {
     handle: Handle,
     class: CollisionClass,
@@ -68,13 +72,14 @@ impl CollisionComponent {
     }
 }
 
+/// Use of the collider crate mandates implementation of this struct. See the collider docs.
 impl HbProfile for CollisionComponent {
     fn id(&self) -> u64 {
         self.handle
     }
 
     fn can_interact(&self, other: &Self) -> bool {
-        let item_involved =  self.class == CollisionClass::Item || other.class == CollisionClass::Item;
+        let item_involved = self.class == CollisionClass::Item || other.class == CollisionClass::Item;
         if item_involved {
             true
         } else if !self.class.is_wall() && !other.class.is_wall() {
@@ -146,12 +151,16 @@ impl System for CollisionSystem {
             }
         }
         let delta_time = ctx.delta_time() as f64;
+        // simulate collisions, but not for longer than delta_time
         while collider.time() < delta_time {
+            // time_step forward into the next collision. Doesn't actually happen in "real" time
+            // it's quite fast.
             let time = collider.next_time().min(delta_time);
             collider.set_time(time);
             if let Some((event, profile_1, profile_2)) = collider.next() {
                 let entity_index1 = entity_indices_by_handle[&profile_1.handle];
                 let entity_index2 = entity_indices_by_handle[&profile_2.handle];
+                // Call collision scripts
                 (profile_1.script)(entity_index1, entity_index2, entities, ctx);
                 (profile_2.script)(entity_index2, entity_index1, entities, ctx);
             }
@@ -159,6 +168,8 @@ impl System for CollisionSystem {
     }
 }
 
+/// Generates default hitboxes from each collision class, because passing hitboxes into the
+/// prefab functions is way too much of a pain. See the collider docs for more info
 fn hitbox_from_class(class: CollisionClass, x: f32, y: f32, vel_x: f32, vel_y: f32) -> Hitbox {
     match class {
         CollisionClass::Tank(_) => Shape::circle(50.0)
